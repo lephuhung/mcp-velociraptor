@@ -1,4 +1,4 @@
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 import os
 import asyncio
@@ -9,7 +9,8 @@ import re
 from velociraptor_api import *
 
 
-# Keep stdio responses clean by suppressing chatty MCP library info logs.
+# Keep stdio responses clean by suppressing chatty FastMCP/MCP library info logs.
+logging.getLogger("fastmcp").setLevel(logging.WARNING)
 logging.getLogger("mcp").setLevel(logging.WARNING)
 
 mcp = FastMCP("velociraptor-mcp")
@@ -2143,4 +2144,4 @@ async def list_macos_artifacts(
 
 
 if __name__ == "__main__":
-    mcp.run()
+    mcp.run(show_banner=False)

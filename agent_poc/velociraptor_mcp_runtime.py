@@ -34,6 +34,7 @@ RUNTIME_VERBOSE = os.environ.get("VELOCIRAPTOR_AGENT_VERBOSE", "").strip().lower
 # The stdio client can emit noisy shutdown warnings when the child process has
 # already exited before process-group cleanup runs. Keep the default runtime
 # quiet unless the caller explicitly enables verbose diagnostics.
+logging.getLogger("fastmcp").setLevel(logging.WARNING)
 logging.getLogger("mcp.client.stdio").setLevel(logging.ERROR)
 logging.getLogger("mcp.os.posix.utilities").setLevel(logging.ERROR)
 

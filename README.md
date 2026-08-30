@@ -22,6 +22,7 @@ Generate an api config file:
 
 ### 2. Clone mcp-velociraptor repo and test API
 
+- Create a virtualenv and install dependencies: `pip install -r requirements.txt` (powered by `fastmcp>=2.0.0`).
 - Copy `api_client.yaml` to the repo root, or keep it anywhere local and set `VELOCIRAPTOR_API_CONFIG=/path/to/api_client.yaml`.
 - Copy `example.env` to `.env` for local development, then set `VELOCIRAPTOR_API_CONFIG` to your real `api_client.yaml` path. The bridge, smoke script, and agent load dotenv config automatically without overriding variables already supplied by your shell or MCP client.
 - `api_client.yaml` is gitignored and should not be committed.
