@@ -1671,18 +1671,47 @@ async def windows_event_logs(
 async def windows_logon_events(
     client_id: str,
     org_id: str = "",
-    Fields: str = "*",
+    DateAfter: str = "",
+    DateBefore: str = "",
+    UsernameRegex: str = ".",
+    IdRegex: str = "4624|4625|4634|4647|4672|4720|4726",
+    limit: int = 100,
+    offset: int = 0,
+    Fields: str = "EventTime,Computer,Channel,EventID,EventData.TargetUserName,EventData.SubjectUserName,EventData.LogonType,EventData.IpAddress,EventData.WorkstationName,Message",
 ) -> str:
     """
-    Collect Windows logon session events.
+    Collect Windows logon session and authentication events with time range and pagination support.
+
+    Args:
+        client_id: Velociraptor client ID.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        DateAfter: Search for events after this ISO-8601 date (e.g. '2026-09-01T00:00:00Z').
+        DateBefore: Search for events before this ISO-8601 date.
+        UsernameRegex: Regex to filter usernames.
+        IdRegex: Regex to filter event IDs (default: 4624|4625|4634|4647|4672|4720|4726).
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
+        Fields: Comma-separated list of fields to return.
+
+    Returns:
+        Logon events as a JSON string with data and pagination metadata.
     """
+    parameters = {
+        "ChannelRegex": "Security",
+        "IdRegex": IdRegex,
+        "IocRegex": UsernameRegex,
+        "DateAfter": DateAfter,
+        "DateBefore": DateBefore,
+    }
     return _run_collection_tool(
         client_id,
-        "Windows.EventLogs.LogonSessions",
-        None,
+        "Windows.EventLogs.EvtxHunter",
+        parameters,
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -1693,10 +1722,12 @@ async def windows_powershell_scriptblock(
     SearchRegex: str = ".",
     DateAfter: str = "",
     DateBefore: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "EventTime,Computer,EventID,EventData.ScriptBlockText,EventData.Path",
 ) -> str:
     """
-    Search PowerShell script block logging events.
+    Search PowerShell script block logging events with time range and pagination support.
     """
     parameters = {
         "ChannelRegex": "Microsoft-Windows-PowerShell/Operational",
@@ -1712,6 +1743,8 @@ async def windows_powershell_scriptblock(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
