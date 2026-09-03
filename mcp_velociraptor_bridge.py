@@ -31,6 +31,8 @@ DANGEROUS_TOOLS_WARNING = (
     "This tool is disabled by default. Set ENABLE_DANGEROUS_TOOLS=true "
     "only when you accept the endpoint impact risk."
 )
+DEFAULT_TOOL_LIMIT = int(os.environ.get("VELOCIRAPTOR_DEFAULT_LIMIT", "100"))
+MAX_TOOL_LIMIT = int(os.environ.get("VELOCIRAPTOR_MAX_LIMIT", "1000"))
 
 
 def _json_success(data) -> str:
@@ -55,16 +57,46 @@ def _run_collection_tool(
     fields: str,
     result_scope: str,
     org_id: str = "",
+    limit: int | None = None,
+    offset: int = 0,
 ) -> str:
-    return _run_json_tool(
-        realtime_collection,
-        client_id,
-        artifact,
-        parameters,
-        fields,
-        result_scope,
-        org_id,
-    )
+    effective_limit = limit if (limit is not None and limit > 0) else DEFAULT_TOOL_LIMIT
+    if MAX_TOOL_LIMIT > 0:
+        effective_limit = min(effective_limit, MAX_TOOL_LIMIT)
+    effective_offset = max(0, int(offset or 0))
+
+    try:
+        # Probe effective_limit + 1 rows to accurately detect has_more
+        probe_limit = effective_limit + 1
+        rows = realtime_collection(
+            client_id=client_id,
+            artifact=artifact,
+            parameters=parameters,
+            fields=fields,
+            result_scope=result_scope,
+            org_id=org_id or None,
+            limit=probe_limit,
+            offset=effective_offset,
+        )
+        if not isinstance(rows, list):
+            return _json_success(rows)
+
+        has_more = len(rows) > effective_limit
+        returned_rows = rows[:effective_limit]
+
+        return json.dumps({
+            "ok": True,
+            "data": returned_rows,
+            "pagination": {
+                "limit": effective_limit,
+                "offset": effective_offset,
+                "returned_rows": len(returned_rows),
+                "has_more": has_more,
+                "next_offset": (effective_offset + len(returned_rows)) if has_more else None,
+            },
+        }, default=str)
+    except Exception as exc:
+        return _json_error(str(exc))
 
 
 def _start_collection_tool(
@@ -289,18 +321,52 @@ def list_clients(
     search: str = ".",
     os_filter: str = ".",
     limit: int = 100,
+    offset: int = 0,
     org_id: str = "",
 ) -> str:
     """
-    List endpoints registered with Velociraptor.
+    List endpoints registered with Velociraptor with pagination support.
 
     Args:
         search: Regex for hostname, FQDN, or client_id.
         os_filter: Regex for OS type such as windows, linux, or darwin.
-        limit: Maximum rows to return.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
     """
-    return _run_json_tool(list_all_clients, search, os_filter, limit, org_id)
+    try:
+        effective_limit = limit if (limit is not None and limit > 0) else DEFAULT_TOOL_LIMIT
+        if MAX_TOOL_LIMIT > 0:
+            effective_limit = min(effective_limit, MAX_TOOL_LIMIT)
+        effective_offset = max(0, int(offset or 0))
+
+        probe_limit = effective_limit + 1
+        rows = list_all_clients(
+            search,
+            os_filter,
+            limit=probe_limit,
+            offset=effective_offset,
+            org_id=org_id or None,
+        )
+        if not isinstance(rows, list):
+            return _json_success(rows)
+
+        has_more = len(rows) > effective_limit
+        returned_rows = rows[:effective_limit]
+
+        return json.dumps({
+            "ok": True,
+            "data": returned_rows,
+            "pagination": {
+                "limit": effective_limit,
+                "offset": effective_offset,
+                "returned_rows": len(returned_rows),
+                "has_more": has_more,
+                "next_offset": (effective_offset + len(returned_rows)) if has_more else None,
+            },
+        }, default=str)
+    except Exception as exc:
+        return _json_error(str(exc))
 
 
 @mcp.tool()
@@ -355,11 +421,53 @@ async def get_hunt_results_tool(
     org_id: str = "",
     fields: str = "*",
     limit: int = 500,
+    offset: int = 0,
 ) -> str:
     """
-    Retrieve rows from a completed Velociraptor hunt.
+    Retrieve rows from a completed Velociraptor hunt with pagination support.
+
+    Args:
+        hunt_id: Target hunt ID.
+        artifact: Hunt artifact name.
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        fields: Comma-separated fields or '*' for all fields.
+        limit: Maximum rows to return (default: 500).
+        offset: Starting row index for pagination (default: 0).
     """
-    return _run_json_tool(get_hunt_results, hunt_id, artifact, fields, limit, org_id)
+    try:
+        effective_limit = limit if (limit is not None and limit > 0) else DEFAULT_TOOL_LIMIT
+        if MAX_TOOL_LIMIT > 0:
+            effective_limit = min(effective_limit, MAX_TOOL_LIMIT)
+        effective_offset = max(0, int(offset or 0))
+
+        probe_limit = effective_limit + 1
+        rows = get_hunt_results(
+            hunt_id,
+            artifact,
+            fields=fields,
+            limit=probe_limit,
+            offset=effective_offset,
+            org_id=org_id or None,
+        )
+        if not isinstance(rows, list):
+            return _json_success(rows)
+
+        has_more = len(rows) > effective_limit
+        returned_rows = rows[:effective_limit]
+
+        return json.dumps({
+            "ok": True,
+            "data": returned_rows,
+            "pagination": {
+                "limit": effective_limit,
+                "offset": effective_offset,
+                "returned_rows": len(returned_rows),
+                "has_more": has_more,
+                "next_offset": (effective_offset + len(returned_rows)) if has_more else None,
+            },
+        }, default=str)
+    except Exception as exc:
+        return _json_error(str(exc))
 
 
 @mcp.tool()
@@ -376,26 +484,31 @@ async def linux_pslist(
     client_id: str,
     org_id: str = "",
     ProcessRegex: str = ".",
-    Fields: str = "*"
+    limit: int = 100,
+    offset: int = 0,
+    Fields: str = "*",
 ) -> str:
     """
-    List running processes on a Linux host.
+    List running processes on a Linux host with pagination support.
 
     Args:
         client_id: The Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
         ProcessRegex: Case-insensitive regex to filter process names.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated string of fields to return.
 
     Returns:
-        Process list as a string or error message.
-
+        Process list as a JSON string with data and pagination metadata.
     """
     artifact = "Linux.Sys.Pslist"
     result_scope = ""
     parameters = {"ProcessRegex": ProcessRegex}
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 @mcp.tool()
 async def linux_groups(
@@ -459,10 +572,12 @@ async def linux_netstat_enriched(
     ProcessPathRegex: str = ".",
     CommandLineRegex: str = ".",
     CallChainRegex: str = ".",
-    Fields: str = "*"
+    limit: int = 100,
+    offset: int = 0,
+    Fields: str = "*",
 ) -> str:
     """
-    List network connections (netstat) with process metadata on a Linux host.
+    List network connections (netstat) with process metadata on a Linux host with pagination support.
 
     Args:
         client_id: The Velociraptor client ID.
@@ -475,11 +590,12 @@ async def linux_netstat_enriched(
         ProcessPathRegex: Regex to filter full process paths.
         CommandLineRegex: Regex to filter command-line arguments.
         CallChainRegex: Regex to filter process callchain.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated string of fields to return.
 
     Returns:
-        Netstat results as a string or error message.
-
+        Netstat results as a JSON string with data and pagination metadata.
     """
     artifact = "Linux.Network.NetstatEnriched"
     result_scope = ""
@@ -494,7 +610,9 @@ async def linux_netstat_enriched(
         "CallChainRegex": CallChainRegex,
     }
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 @mcp.tool()
 async def linux_users(
@@ -699,10 +817,12 @@ async def macos_pslist(
     client_id: str,
     org_id: str = "",
     ProcessRegex: str = ".",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    List running processes on a macOS host.
+    List running processes on a macOS host with pagination support.
     """
     return _run_collection_tool(
         client_id,
@@ -711,6 +831,8 @@ async def macos_pslist(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -730,12 +852,23 @@ async def macos_users(
 async def macos_netstat(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    List network connections on a macOS host.
+    List network connections on a macOS host with pagination support.
     """
-    return _run_collection_tool(client_id, "MacOS.Network.Netstat", None, Fields, "", org_id)
+    return _run_collection_tool(
+        client_id,
+        "MacOS.Network.Netstat",
+        None,
+        Fields,
+        "",
+        org_id,
+        limit,
+        offset,
+    )
 
 
 @mcp.tool()
@@ -897,10 +1030,12 @@ async def windows_pslist(
     ExePathRegex: str = ".",
     CommandLineRegex: str = ".",
     UsernameRegex: str = ".",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "Pid, Ppid, TokenIsElevated, Name, Exe, CommandLine, Username, Authenticode.Trusted"
 ) -> str:
     """
-    List running processes on a Windows host.
+    List running processes on a Windows host with pagination support.
 
     Args:
         client_id: Velociraptor client ID.
@@ -910,10 +1045,12 @@ async def windows_pslist(
         ExePathRegex: Regex to filter executable path on disk.
         CommandLineRegex: Regex to filter process command line.
         UsernameRegex: Regex to filter user context of the process.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        Process list results as a string or error message.
+        Process list results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.System.Pslist"
     result_scope = ""
@@ -925,7 +1062,9 @@ async def windows_pslist(
         "UsernameRegex": UsernameRegex,
     }
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 @mcp.tool()
 async def windows_netstat_enriched(
@@ -937,10 +1076,12 @@ async def windows_netstat_enriched(
     ProcessPathRegex: str = ".",
     CommandLineRegex: str = ".",
     UsernameRegex: str = ".",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "Pid,Ppid,Name,Path,CommandLine,Username,Authenticode.Trusted,Type,Status,Laddr,Lport,Raddr,Rport"
 ) -> str:
     """
-    List network connections (netstat) with process metadata on a Windows host.
+    List network connections (netstat) with process metadata on a Windows host with pagination support.
 
     Args:
         client_id: Velociraptor client ID.
@@ -951,10 +1092,12 @@ async def windows_netstat_enriched(
         ProcessPathRegex: Regex to filter full process paths.
         CommandLineRegex: Regex to filter command-line arguments.
         UsernameRegex: Regex to filter user accounts associated with the process.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        Netstat results as a string or error message.
+        Netstat results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.Network.NetstatEnriched/Netstat"
     result_scope = ""
@@ -967,7 +1110,9 @@ async def windows_netstat_enriched(
         "UsernameRegex": UsernameRegex,
     }
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 ##
 ## Persistence
@@ -975,48 +1120,60 @@ async def windows_netstat_enriched(
 async def windows_scheduled_tasks(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "OSPath,Mtime,Command,ExpandedCommand,Arguments,ComHandler,UserId,StartBoundary,Authenticode"
 ) -> str:
     """
-    List scheduled tasks (persistance) with metadata on a Windows host
+    List scheduled tasks (persistance) with metadata on a Windows host with pagination support.
 
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        Scheduled task results as a string or error message.
+        Scheduled task results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.System.TaskScheduler"
     result_scope = "/Analysis"
     parameters = None  # No parameters for this artifact
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 
 @mcp.tool()
 async def windows_services(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "UserAccount,Created,ServiceDll,FailureCommand,FailureActions,AbsoluteExePath,HashServiceExe,CertinfoServiceExe,HashServiceDll,CertinfoServiceDll"
 ) -> str:
     """
-    List services with metadata on a Windows host.
+    List services with metadata on a Windows host with pagination support.
 
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        Service artifact results as a string or error message.
+        Service artifact results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.System.Services"
     result_scope = ""
     parameters = None  # No parameters for this artifact
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 
 ##
@@ -1362,10 +1519,12 @@ async def windows_execution_userassist(
 async def windows_execution_shimcache(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "Position,ModificationTime,Path,ExecutionFlag,ControlSet"
 ) -> str:
     """
-    Parse ShimCache (AppCompatCache) entries from the registry on a Windows host.
+    Parse ShimCache (AppCompatCache) entries from the registry on a Windows host with pagination support.
 
     Note:
         Presence of a ShimCache entry may not indicate actual execution—only that the file was accessed or observed by the system.
@@ -1373,41 +1532,50 @@ async def windows_execution_shimcache(
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        ShimCache (AppCompatCache) artifact results as a string or error message.
+        ShimCache (AppCompatCache) artifact results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.Registry.AppCompatCache"
     result_scope = ""
     parameters = None  # No parameters for this artifact
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 
 @mcp.tool()
 async def windows_execution_prefetch(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "Binary,CreationTime,LastRunTimes,RunCount,Hash"
-    #"Executable,LastRunTimes,RunCount,PrefetchFileName,Version,Hash,CreationTime,ModificationTime,Binary"
 ) -> str:
     """
-    Parse Prefetch files on a Windows host to identify previously executed programs.
+    Parse Prefetch files on a Windows host to identify previously executed programs with pagination support.
 
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        Prefetch artifact results as a string or error message.
+        Prefetch artifact results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.Forensics.Prefetch"
     result_scope = ""
     parameters = None  # No parameters for this artifact
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 
 @mcp.tool()
@@ -1419,10 +1587,12 @@ async def windows_ntfs_mft_search(
     FileRegex: str = ".",
     DateAfter: str = "",
     DateBefore: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Search the Windows MFT by filename regex.
+    Search the Windows MFT by filename regex with pagination support.
     """
     parameters = {
         "MFTDrive": MFTDrive,
@@ -1438,6 +1608,8 @@ async def windows_ntfs_mft_search(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -1458,10 +1630,12 @@ async def windows_event_logs(
     SearchVSS: bool = False,
     DateAfter: str = "",
     DateBefore: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "EventTime,Computer,Channel,Provider,EventID,EventData,Message",
 ) -> str:
     """
-    Search Windows EVTX logs by channel, event ID, and date range.
+    Search Windows EVTX logs by channel, event ID, and date range with pagination support.
     """
     if SearchRegex:
         IocRegex = SearchRegex
@@ -1488,6 +1662,8 @@ async def windows_event_logs(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -1699,10 +1875,12 @@ async def windows_ntfs_mft(
     DateAfter: str = "",
     DateBefore: str = "",
     SizeMax: int = 0,
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*"
 ) -> str:
     """
-    Search MFT for filename or path on a Windows machine. This is a forensic collection and may return many rows. If failure retry with collect_artifact().
+    Search MFT for filename or path on a Windows machine with pagination support.
     Args:
         client_id: The Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
@@ -1711,11 +1889,12 @@ async def windows_ntfs_mft(
         PathRegex: Regex to match file paths (more costly).
         DateAfter: Filter for files modified/created after this timestamp.
         DateBefore: Filter for files modified/created before this timestamp.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated string of fields to return.
 
     Returns:
-        A result string or error message.
-
+        A JSON string with MFT rows and pagination metadata.
     """
     artifact = "Windows.NTFS.MFT"
     result_scope = ""
@@ -1733,7 +1912,9 @@ async def windows_ntfs_mft(
         "SizeMax": SizeMax,
     }
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 
 @mcp.tool()
@@ -1753,10 +1934,12 @@ async def windows_usn_journal(
     DateAfter: str = "",
     DateBefore: str = "",
     FastPaths: bool = True,
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "Usn,Timestamp,Filename,FullPath,Reason,FileAttributes,SourceInfo",
 ) -> str:
     """
-    Parse the Windows NTFS USN change journal.
+    Parse the Windows NTFS USN change journal with pagination support.
     """
     if not Device:
         Device = DriveLetter
@@ -1781,6 +1964,8 @@ async def windows_usn_journal(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 

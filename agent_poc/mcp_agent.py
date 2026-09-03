@@ -504,7 +504,7 @@ class VelociraptorAgent:
     async def initialize(self):
         """Initialize the agent and connect to MCP bridge."""
         await self.client.connect()
-        print(f"✓ Agent initialized with {len(self.client.tools)} tools", flush=True)
+        print(f"[+] Agent initialized with {len(self.client.tools)} tools", flush=True)
 
     async def shutdown(self):
         """Cleanup and disconnect."""
@@ -527,7 +527,7 @@ class VelociraptorAgent:
         Returns:
             Structured analysis results.
         """
-        print(f"\n🔍 Starting {analysis_type} analysis for: {hostname}", flush=True)
+        print(f"\n[*] Starting {analysis_type} analysis for: {hostname}", flush=True)
         self.client.reset_conversation()
 
         normalized_type = "engagement" if analysis_type == "full" else analysis_type
@@ -1137,7 +1137,7 @@ class VelociraptorAgent:
         with open(filename, "w") as file_handle:
             json.dump(results, file_handle, indent=2)
 
-        print(f"✓ Results saved to: {filename}", flush=True)
+        print(f"[+] Results saved to: {filename}", flush=True)
 
 
 def _format_value(value: Any) -> str:

@@ -176,7 +176,9 @@ Set `ENABLE_DANGEROUS_TOOLS=true` only when you explicitly want to enable raw
 VQL, quarantine, and remote process-kill tools.
 
 The MCP bridge returns JSON text envelopes in the form
-`{"ok": true, "data": ...}` or `{"ok": false, "error": "..."}`. Consumers
+`{"ok": true, "data": [...], "pagination": {"limit": 100, "offset": 0, "returned_rows": 100, "has_more": true, "next_offset": 100}}` or
+`{"ok": false, "error": "..."}`. Collection tools default to `VELOCIRAPTOR_DEFAULT_LIMIT=100`
+and accept `limit` and `offset` arguments for paginated retrieval. Consumers
 that call MCP tools directly should decode the JSON payload before reading the
 tool result.
 For `collect_artifact`, use the `parameters` argument as a structured JSON
@@ -185,9 +187,12 @@ object with scalar values or lists of scalar values, such as
 input can be passed via `legacy_parameters` and is limited to simple scalar
 assignments or list literals like `Targets=['_BasicCollection']`; raw VQL
 fragments are rejected.
-The `collect_forensic_triage` helper wraps `Windows.Triage.Targets` with
-`Targets='["_BasicCollection"]'` and a collection timeout of `2400` seconds.
 The MCP server also exposes expanded fleet, Linux, macOS, Windows, YARA, and
 response helpers. The POC agent models deterministic Windows, Linux, and macOS
 helpers as bounded analyst roles. Parameter-heavy or disruptive helpers remain
 available to direct MCP clients and are not run automatically by agent profiles.
+
+### Performance & Latency Expectations
+- **In-Memory Artifacts** (`windows_pslist`, `linux_pslist`, `windows_netstat_enriched`): ~3–7 seconds.
+- **Disk / EVTX Log Artifacts** (`windows_event_logs`, `windows_ntfs_mft`, `windows_usn_journal`): ~30–45 seconds due to endpoint-side disk file parsing.
+- Always prefer bounded time ranges (`DateAfter`, `DateBefore`) and bounded triage profiles (`windows_event_logs_triage`) to minimize collection latency.

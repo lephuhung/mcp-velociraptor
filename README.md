@@ -90,13 +90,23 @@ to the configured Azure API account for summarization. See
 `agent_poc/README.md` for agent-specific usage and automation examples,
 including verbose collection progress output with artifact names and row counts.
 
-### 4. Tool Response Format
+### 4. Tool Response Format & Pagination
 
 MCP tool responses are emitted as JSON text envelopes so stdio clients do not
 need to parse Python `repr()` output:
 
 ```json
-{"ok": true, "data": {...}}
+{
+  "ok": true,
+  "data": [...],
+  "pagination": {
+    "limit": 100,
+    "offset": 0,
+    "returned_rows": 100,
+    "has_more": true,
+    "next_offset": 100
+  }
+}
 ```
 
 or
@@ -104,6 +114,12 @@ or
 ```json
 {"ok": false, "error": "message"}
 ```
+
+#### Pagination and Row Limits:
+To prevent overloading the LLM context window, data collection tools automatically enforce row bounds:
+- **Default Limit**: `100` rows (customizable via `VELOCIRAPTOR_DEFAULT_LIMIT`).
+- **Maximum Cap**: `1000` rows (customizable via `VELOCIRAPTOR_MAX_LIMIT`).
+- **Pagination Parameters**: Tools accept `limit` (max rows to return) and `offset` (starting index). When `has_more` is `true`, clients or agents can supply `offset=next_offset` to retrieve subsequent pages.
 
 `collect_artifact` and `hunt_across_fleet` accept `parameters` as a structured
 JSON object with scalar values or lists of scalar values, for example
@@ -135,7 +151,20 @@ that expanded available tools and some of the newer cross-platform additions.
 ![image](https://github.com/user-attachments/assets/3e810f03-ca74-4757-b5dc-89d4e8f8aef6)
 
 
-### 6. Caveats
+### 6. Performance & Optimization Recommendations for LLMs
+
+Realtime artifact collection performance depends on the type of artifact and endpoint disk activity:
+
+- **Response Latency Profiles**:
+  - **In-Memory Artifacts** (`windows_pslist`, `linux_pslist`, `windows_netstat_enriched`): Typically respond in **~3–7 seconds** as data is read directly from endpoint OS memory.
+  - **Disk & EVTX Log Artifacts** (`windows_event_logs`, `windows_ntfs_mft`, `windows_usn_journal`): Typically take **~30–45 seconds** as the Velociraptor agent on the endpoint must parse raw `.evtx` / NTFS binary files on disk.
+
+- **Best Practices for LLMs & MCP Clients**:
+  1. **Time Bounds (`DateAfter`, `DateBefore`)**: When querying event logs or timeline artifacts, always specify ISO-8601 bounds (e.g., `DateAfter="2026-09-01T00:00:00Z"`). This avoids full disk event log scans and speeds up execution.
+  2. **Triage-First Approach**: Use bounded triage tools first (such as `windows_event_logs_triage` with `security_core`, `powershell`, or `sysmon` profiles) to quickly identify suspect Event IDs or processes before running full detail collectors.
+  3. **Leverage Pagination**: Keep `limit` small (default: 100) and inspect `pagination.has_more` / `next_offset` before requesting additional pages.
+
+### 7. Caveats
 
 Due to the nature of DFIR, results depend on amount of data returned, model use and context window.
 

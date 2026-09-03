@@ -80,6 +80,18 @@ def normalize_fields(fields: str) -> str:
     return ", ".join(result)
 
 
+def build_limit_offset_clause(
+    limit: int | None = None,
+    offset: int | None = None,
+) -> str:
+    clauses = []
+    if limit is not None and limit > 0:
+        clauses.append(f"LIMIT {int(limit)}")
+    if offset is not None and offset > 0:
+        clauses.append(f"OFFSET {int(offset)}")
+    return (" " + " ".join(clauses)) if clauses else ""
+
+
 def normalize_artifact_name(artifact: str) -> str:
     cleaned = artifact.strip()
     if not cleaned or not VALID_ARTIFACT_RE.fullmatch(cleaned):
@@ -378,10 +390,12 @@ def list_all_clients(
     search: str = ".",
     os_filter: str = ".",
     limit: int = 100,
+    offset: int | None = None,
     org_id: str | None = None,
 ) -> list[dict]:
     search_pattern = search or "."
     os_pattern = os_filter or "."
+    limit_clause = build_limit_offset_clause(limit, offset)
     vql = (
         "SELECT client_id,"
         "timestamp(epoch=first_seen_at) as FirstSeen,"
@@ -398,7 +412,7 @@ def list_all_clients(
         f"OR os_info.fqdn =~ {vql_literal(search_pattern)} "
         f"OR client_id =~ {vql_literal(search_pattern)}) "
         f"AND os_info.system =~ {vql_literal(os_pattern)} "
-        f"ORDER BY LastSeen DESC LIMIT {int(limit)}"
+        f"ORDER BY LastSeen DESC{limit_clause}"
     )
     return run_vql_query(vql, org_id=org_id)
 
@@ -528,15 +542,16 @@ def get_hunt_results(
     artifact: str,
     fields: str = "*",
     limit: int = 500,
+    offset: int | None = None,
     org_id: str | None = None,
 ) -> list[dict]:
     normalized_artifact = normalize_artifact_name(artifact)
     normalized_fields = normalize_fields(fields)
+    limit_clause = build_limit_offset_clause(limit, offset)
     vql = (
         f"SELECT {normalized_fields} "
         f"FROM hunt_results(hunt_id={vql_literal(hunt_id)}, "
-        f"artifact={vql_literal(normalized_artifact)}) "
-        f"LIMIT {int(limit)}"
+        f"artifact={vql_literal(normalized_artifact)}){limit_clause}"
     )
     return run_vql_query(vql, org_id=org_id)
 
@@ -549,14 +564,16 @@ def realtime_collection(
     result_scope: str = "",
     org_id: str | None = None,
     numeric_limit: int | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
 ) -> list[dict]:
     normalized_artifact = normalize_artifact_name(artifact)
     normalized_result_artifact = normalize_artifact_name(f"{artifact}{result_scope}")
     normalized_fields = normalize_fields(fields)
     normalized_parameters = normalize_env_dict(parameters)
-    # F-3 fix: numeric_limit appends LIMIT to the final SELECT VQL expression,
-    # not to result_scope (which is concatenated to the artifact name).
-    limit_clause = f" LIMIT {int(numeric_limit)}" if numeric_limit is not None and numeric_limit > 0 else ""
+    # numeric_limit is kept for backward compatibility if limit is not explicitly passed
+    effective_limit = limit if limit is not None else numeric_limit
+    limit_clause = build_limit_offset_clause(effective_limit, offset)
     vql = (
         f"LET collection <= collect_client(urgent='TRUE',client_id={vql_literal(client_id)}, "
         f"artifacts={vql_literal(normalized_artifact)}, env=dict({normalized_parameters})) "
@@ -610,13 +627,16 @@ def get_flow_results(
     flow_id: str,
     artifact: str,
     fields: str = "*",
+    limit: int | None = None,
+    offset: int | None = None,
     org_id: str | None = None,
 ) -> list[dict]:
     normalized_artifact = normalize_artifact_name(artifact)
     normalized_fields = normalize_fields(fields)
+    limit_clause = build_limit_offset_clause(limit, offset)
     vql = (
         f"SELECT {normalized_fields} FROM source(client_id={vql_literal(client_id)}, "
-        f"flow_id={vql_literal(flow_id)},artifact={vql_literal(normalized_artifact)}) "
+        f"flow_id={vql_literal(flow_id)},artifact={vql_literal(normalized_artifact)}){limit_clause}"
     )
 
     return run_vql_query(vql, org_id=org_id)
