@@ -310,7 +310,7 @@ def run_vql_query(vql: str, org_id: str | None = None):
     results = []
     if DEBUG_VQL:
         logger.debug("VQL request: %s", request)
-    
+
     for resp in stub.Query(request):
         if hasattr(resp, "error") and resp.error:
             raise RuntimeError(f"Velociraptor API error: {resp.error}")
@@ -548,17 +548,21 @@ def realtime_collection(
     fields: str = "*",
     result_scope: str = "",
     org_id: str | None = None,
+    numeric_limit: int | None = None,
 ) -> list[dict]:
     normalized_artifact = normalize_artifact_name(artifact)
     normalized_result_artifact = normalize_artifact_name(f"{artifact}{result_scope}")
     normalized_fields = normalize_fields(fields)
     normalized_parameters = normalize_env_dict(parameters)
+    # F-3 fix: numeric_limit appends LIMIT to the final SELECT VQL expression,
+    # not to result_scope (which is concatenated to the artifact name).
+    limit_clause = f" LIMIT {int(numeric_limit)}" if numeric_limit is not None and numeric_limit > 0 else ""
     vql = (
         f"LET collection <= collect_client(urgent='TRUE',client_id={vql_literal(client_id)}, "
         f"artifacts={vql_literal(normalized_artifact)}, env=dict({normalized_parameters})) "
         f"LET get_monitoring = SELECT * FROM watch_monitoring(artifact='System.Flow.Completion') WHERE FlowId = collection.flow_id LIMIT 1 "
         f"LET get_results = SELECT * FROM source(client_id=collection.request.client_id, flow_id=collection.flow_id,artifact={vql_literal(normalized_result_artifact)}) "
-        f"SELECT {normalized_fields} FROM foreach(row=get_monitoring, query=get_results) "
+        f"SELECT {normalized_fields} FROM foreach(row=get_monitoring, query=get_results){limit_clause}"
     )
 
     return run_vql_query(vql, org_id=org_id)
