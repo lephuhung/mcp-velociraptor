@@ -35,8 +35,18 @@ DEFAULT_TOOL_LIMIT = int(os.environ.get("VELOCIRAPTOR_DEFAULT_LIMIT", "100"))
 MAX_TOOL_LIMIT = int(os.environ.get("VELOCIRAPTOR_MAX_LIMIT", "1000"))
 
 
-def _json_success(data) -> str:
-    return json.dumps({"ok": True, "data": data}, default=str)
+def _clamp_limit(limit: int | None) -> int:
+    effective_limit = limit if (limit is not None and limit > 0) else DEFAULT_TOOL_LIMIT
+    if MAX_TOOL_LIMIT > 0:
+        effective_limit = min(effective_limit, MAX_TOOL_LIMIT)
+    return effective_limit
+
+
+def _json_success(data, pagination: dict | None = None) -> str:
+    payload = {"ok": True, "data": data}
+    if pagination is not None:
+        payload["pagination"] = pagination
+    return json.dumps(payload, default=str)
 
 
 def _json_error(message: str) -> str:
@@ -515,50 +525,60 @@ async def linux_groups(
     client_id: str,
     org_id: str = "",
     GroupFile: str = "/etc/group",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*"
 ) -> str:
     """
-    List groups on a Linux host.
+    List groups on a Linux host with pagination support.
 
     Args:
         client_id: The Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
         GroupFile: The location of the group file
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated string of fields to return.
 
     Returns:
-        The group names as a string or error message.
-
+        The group names as a JSON string with data and pagination metadata.
     """
     artifact = "Linux.Sys.Groups"
     result_scope = ""
     parameters = {"GroupFile": GroupFile}
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 @mcp.tool()
 async def linux_mounts(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*"
 ) -> str:
     """
-    List mounts on a Linux host.
+    List mounts on a Linux host with pagination support.
 
     Args:
         client_id: The Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated string of fields to return.
 
     Returns:
-        The mounted filesystems as a string or error message.
-
+        The mounted filesystems as a JSON string with data and pagination metadata.
     """
     artifact = "Linux.Mounts"
     result_scope = ""
     parameters = None  # No parameters for this artifact
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 @mcp.tool()
 async def linux_netstat_enriched(
@@ -618,59 +638,74 @@ async def linux_netstat_enriched(
 async def linux_users(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*"
 ) -> str:
     """
-    List users on a Linux host.
+    List users on a Linux host with pagination support.
 
     Args:
         client_id: The Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated string of fields to return.
 
     Returns:
-        The user results as a string or error message.
-
+        The user results as a JSON string with data and pagination metadata.
     """
     artifact = "Linux.Sys.Users"
     result_scope = ""
     parameters = None  # No parameters for this artifact
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 
 @mcp.tool()
 async def linux_crontab(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Collect Linux crontab entries for persistence review.
+    Collect Linux crontab entries for persistence review with pagination support.
     """
-    return _run_collection_tool(client_id, "Linux.Sys.Crontab", None, Fields, "", org_id)
+    return _run_collection_tool(
+        client_id, "Linux.Sys.Crontab", None, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
 async def linux_services(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Collect Linux systemd service definitions and state.
+    Collect Linux systemd service definitions and state with pagination support.
     """
-    return _run_collection_tool(client_id, "Linux.Sys.Services", None, Fields, "", org_id)
+    return _run_collection_tool(
+        client_id, "Linux.Sys.Services", None, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
 async def linux_ssh_authorized_keys(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Collect Linux authorized_keys files to identify SSH backdoors.
+    Collect Linux authorized_keys files to identify SSH backdoors with pagination support.
     """
     return _run_collection_tool(
         client_id,
@@ -679,6 +714,8 @@ async def linux_ssh_authorized_keys(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -686,34 +723,44 @@ async def linux_ssh_authorized_keys(
 async def linux_bash_history(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Collect Linux shell history from user home directories.
+    Collect Linux shell history from user home directories with pagination support.
     """
-    return _run_collection_tool(client_id, "Linux.Sys.BashHistory", None, Fields, "", org_id)
+    return _run_collection_tool(
+        client_id, "Linux.Sys.BashHistory", None, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
 async def linux_ssh_logins(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Parse Linux SSH authentication events from syslog/auth logs.
+    Parse Linux SSH authentication events from syslog/auth logs with pagination support.
     """
-    return _run_collection_tool(client_id, "Linux.Syslog.SSHLogin", None, Fields, "", org_id)
+    return _run_collection_tool(
+        client_id, "Linux.Syslog.SSHLogin", None, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
 async def linux_last_user_login(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Parse Linux utmp/wtmp login history.
+    Parse Linux utmp/wtmp login history with pagination support.
     """
     return _run_collection_tool(
         client_id,
@@ -722,6 +769,8 @@ async def linux_last_user_login(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -729,12 +778,16 @@ async def linux_last_user_login(
 async def linux_arp_cache(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Dump Linux ARP cache entries.
+    Dump Linux ARP cache entries with pagination support.
     """
-    return _run_collection_tool(client_id, "Linux.Network.ArpCache", None, Fields, "", org_id)
+    return _run_collection_tool(
+        client_id, "Linux.Network.ArpCache", None, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
@@ -744,10 +797,12 @@ async def linux_journal_logs(
     SearchRegex: str = ".",
     DateAfter: str = "",
     DateBefore: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Search Linux systemd journal logs.
+    Search Linux systemd journal logs with time range and pagination support.
     """
     parameters = {
         "SearchRegex": SearchRegex,
@@ -761,6 +816,8 @@ async def linux_journal_logs(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -781,10 +838,12 @@ async def linux_file_finder(
     LocalFilesystemOnly: bool = False,
     OneFilesystem: bool = False,
     DoNotFollowSymlinks: bool = False,
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Search Linux files by glob or YARA rule using documented FileFinder params.
+    Search Linux files by glob or YARA rule using documented FileFinder params with pagination support.
     """
     if Hash or HashRegex:
         Calculate_Hash = True
@@ -809,6 +868,8 @@ async def linux_file_finder(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -840,12 +901,16 @@ async def macos_pslist(
 async def macos_users(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    List local user accounts on a macOS host.
+    List local user accounts on a macOS host with pagination support.
     """
-    return _run_collection_tool(client_id, "MacOS.Sys.Users", None, Fields, "", org_id)
+    return _run_collection_tool(
+        client_id, "MacOS.Sys.Users", None, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
@@ -875,10 +940,12 @@ async def macos_netstat(
 async def macos_launch_agents(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    List macOS LaunchAgents and LaunchDaemons.
+    List macOS LaunchAgents and LaunchDaemons with pagination support.
     """
     return _run_collection_tool(
         client_id,
@@ -887,6 +954,8 @@ async def macos_launch_agents(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -894,24 +963,32 @@ async def macos_launch_agents(
 async def macos_login_items(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    List macOS login items.
+    List macOS login items with pagination support.
     """
-    return _run_collection_tool(client_id, "MacOS.Sys.LoginItems", None, Fields, "", org_id)
+    return _run_collection_tool(
+        client_id, "MacOS.Sys.LoginItems", None, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
 async def macos_bash_history(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Collect macOS bash and zsh history.
+    Collect macOS bash and zsh history with pagination support.
     """
-    return _run_collection_tool(client_id, "MacOS.Sys.BashHistory", None, Fields, "", org_id)
+    return _run_collection_tool(
+        client_id, "MacOS.Sys.BashHistory", None, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
@@ -922,10 +999,12 @@ async def macos_browser_history(
     historyGlobs: str = "",
     urlSQLQuery: str = "",
     userRegex: str = ".",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Collect macOS browser history from supported browsers.
+    Collect macOS browser history from supported browsers with pagination support.
     """
     if URLRegex != ".":
         return _json_error(
@@ -944,6 +1023,8 @@ async def macos_browser_history(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -951,10 +1032,12 @@ async def macos_browser_history(
 async def macos_quarantine_events(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Parse macOS quarantine events for downloaded files.
+    Parse macOS quarantine events for downloaded files with pagination support.
     """
     return _run_collection_tool(
         client_id,
@@ -963,6 +1046,8 @@ async def macos_quarantine_events(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -970,12 +1055,16 @@ async def macos_quarantine_events(
 async def macos_tcc_database(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Parse the macOS TCC privacy permission database.
+    Parse the macOS TCC privacy permission database with pagination support.
     """
-    return _run_collection_tool(client_id, "MacOS.System.TCC", None, Fields, "", org_id)
+    return _run_collection_tool(
+        client_id, "MacOS.System.TCC", None, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
@@ -993,10 +1082,12 @@ async def macos_file_finder(
     MoreRecentThan: str = "",
     ModifiedBefore: str = "",
     DoNotFollowSymlinks: bool = False,
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Search macOS files by glob or YARA rule using documented FileFinder params.
+    Search macOS files by glob or YARA rule using documented FileFinder params with pagination support.
     """
     if Hash or HashRegex:
         Calculate_Hash = True
@@ -1019,6 +1110,8 @@ async def macos_file_finder(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 @mcp.tool()
@@ -1183,118 +1276,161 @@ async def windows_services(
 async def windows_recentdocs(
     client_id: str,
     org_id: str = "",
+    DateAfter: str = "",
+    DateBefore: str = "",
+    UserRegex: str = ".",
+    EntryRegex: str = ".",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "Username,LastWriteTime,Value,Key,MruEntries,HiveName"
 ) -> str:
     """
-    Collect RecentDocs from Registry on a Windows host.
+    Collect RecentDocs from Registry on a Windows host with time range and pagination support.
 
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        DateAfter: Filter for entries modified after this ISO-8601 timestamp.
+        DateBefore: Filter for entries modified before this ISO-8601 timestamp.
+        UserRegex: Regex to filter usernames.
+        EntryRegex: Regex to filter entry values.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        RecentDocs artifact results as a string or error message.
+        RecentDocs artifact results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.Registry.RecentDocs"
     result_scope = ""
-    parameters = None  # No parameters for this artifact
+    parameters = {
+        "DateAfter": DateAfter,
+        "DateBefore": DateBefore,
+        "UserRegex": UserRegex,
+        "EntryRegex": EntryRegex,
+    }
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 
 @mcp.tool()
 async def windows_shellbags(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "ModTime,Name,_OSPath,Hive,KeyPath,Description,Path,_RawData,_Parsed"
 ) -> str:
     """
-     Collect Shellbags from Registry on a Windows host.
+    Collect Shellbags from Registry on a Windows host with pagination support.
 
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        Shellbags artifact results as a string or error message.
+        Shellbags artifact results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.Forensics.Shellbags"
     result_scope = ""
     parameters = None  # No parameters for this artifact
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 
 @mcp.tool()
 async def windows_mounted_mass_storage_usb(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "KeyLastWriteTimestamp, KeyName, FriendlyName, HardwareID"
 ) -> str:
     """
-        Collect evidence of mounted mass storage from Registry on a Windows host.
+    Collect evidence of mounted mass storage from Registry on a Windows host with pagination support.
 
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        Mounted mass storage artifact results as a string or error message.
+        Mounted mass storage artifact results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.Mounted.Mass.Storage"
     result_scope = ""
     parameters = None  # No parameters for this artifact
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 @mcp.tool()
 async def windows_evidence_of_download(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "DownloadedFilePath,_ZoneIdentifierContent,FileHash,HostUrl,ReferrerUrl"
 ) -> str:
     """
-    Collect evidence of download from a Windows host.
+    Collect evidence of download from a Windows host with pagination support.
 
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        Evidence of Download artifact results as a string or error message.
+        Evidence of Download artifact results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.Analysis.EvidenceOfDownload"
     result_scope = ""
     parameters = None  # No parameters for this artifact
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 @mcp.tool()
 async def windows_mountpoints2(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "ModifiedTime, MountPoint, Hive, Key"
 ) -> str:
     """
-    Collect evidence of download from a Windows host.
+    Collect MountPoints2 user activity from Registry on a Windows host with pagination support.
 
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        Evidence of Download artifact results as a string or error message.
+        MountPoints2 artifact results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.Registry.MountPoints2"
     result_scope = ""
     parameters = None  # No parameters for this artifact
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 
 @mcp.tool()
@@ -1303,10 +1439,12 @@ async def windows_event_log_cleared(
     org_id: str = "",
     DateAfter: str = "",
     DateBefore: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "EventTime,Computer,Channel,EventID,EventData,Message",
 ) -> str:
     """
-    Detect Windows event log clearing events.
+    Detect Windows event log clearing events with time range and pagination support.
     """
     parameters = {
         "ChannelRegex": "Security|System",
@@ -1321,6 +1459,8 @@ async def windows_event_log_cleared(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -1330,10 +1470,12 @@ async def windows_timestomp(
     org_id: str = "",
     DateAfter: str = "",
     DateBefore: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Detect NTFS timestamp anomalies that may indicate timestomping.
+    Detect NTFS timestamp anomalies that may indicate timestomping with pagination support.
     """
     parameters = {
         "DateAfter": DateAfter,
@@ -1346,6 +1488,8 @@ async def windows_timestomp(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -1353,10 +1497,12 @@ async def windows_timestomp(
 async def windows_shadow_copies(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Enumerate Windows Volume Shadow Copies.
+    Enumerate Windows Volume Shadow Copies with pagination support.
     """
     parameters = {"WMIQuery": "SELECT * FROM Win32_ShadowCopy"}
     return _run_collection_tool(
@@ -1366,6 +1512,8 @@ async def windows_shadow_copies(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -1375,10 +1523,12 @@ async def windows_malfind(
     org_id: str = "",
     ProcessRegex: str = ".",
     PidRegex: str = ".",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Detect suspicious unbacked Windows process memory regions.
+    Detect suspicious unbacked Windows process memory regions with pagination support.
     """
     parameters = {"ProcessRegex": ProcessRegex, "PidRegex": PidRegex}
     return _run_collection_tool(
@@ -1388,6 +1538,8 @@ async def windows_malfind(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -1399,10 +1551,12 @@ async def windows_mutants(
     MutantNameRegex: str = "",
     ProcessRegex: str = ".",
     MutantWhitelistRegex: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Enumerate Windows mutants/mutexes for malware hunting.
+    Enumerate Windows mutants/mutexes for malware hunting with pagination support.
     """
     if not MutantNameRegex:
         MutantNameRegex = MutantRegex
@@ -1417,6 +1571,8 @@ async def windows_mutants(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -1426,94 +1582,132 @@ async def windows_mutants(
 async def windows_execution_amcache(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "FullPath,SHA1,ProgramID,FileDescription,FileVersion,Publisher,CompileTime,LastModified,LastRunTime"
 ) -> str:
     """
-    Collect evidence of execution from Amcache on a Windows host.
+    Collect evidence of execution from Amcache on a Windows host with pagination support.
 
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        Amcache artifact results as a string or error message.
+        Amcache artifact results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.Detection.Amcache"
     result_scope = ""
     parameters = None  # No parameters for this artifact
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 
 @mcp.tool()
 async def windows_execution_bam(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*"
 ) -> str:
     """
-    Extract evidence of execution from the BAM (Background Activity Moderator) registry key on a Windows host.
+    Extract evidence of execution from the BAM (Background Activity Moderator) registry key on a Windows host with pagination support.
 
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        BAM artifact results as a string or error message.
+        BAM artifact results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.Forensics.Bam"
     result_scope = ""
     parameters = None  # No parameters for this artifact
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 @mcp.tool()
 async def windows_execution_activitiesCache(
     client_id: str,
     org_id: str = "",
+    ExecutionTimeAfter: str = "",
+    UserFilter: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*"
 ) -> str:
     """
-    Evidence of execution from activitiesCache.db (windows timeline) of system activity on a Windows host.
+    Evidence of execution from activitiesCache.db (windows timeline) of system activity on a Windows host with time range and pagination support.
 
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        ExecutionTimeAfter: Search for timeline entries executed after this ISO-8601 timestamp.
+        UserFilter: Regex to filter usernames.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        Timeline artifact results as a string or error message.
+        Timeline artifact results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.Forensics.Timeline"
     result_scope = ""
-    parameters = None  # No parameters for this artifact
+    parameters = {
+        "ExecutionTimeAfter": ExecutionTimeAfter,
+        "UserFilter": UserFilter,
+    }
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 @mcp.tool()
 async def windows_execution_userassist(
     client_id: str,
     org_id: str = "",
+    ExecutionTimeAfter: str = "",
+    UserFilter: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "Name,User,LastExecution,NumberOfExecutions"
 ) -> str:
     """
-    Extract evidence of execution from UserAssist registry keys.
+    Extract evidence of execution from UserAssist registry keys with time filter and pagination support.
 
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        ExecutionTimeAfter: Search for executions after this ISO-8601 timestamp.
+        UserFilter: Regex to filter usernames.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
 
     Returns:
-        UserAssist artifact results as a string or error message.
+        UserAssist artifact results as a JSON string with data and pagination metadata.
     """
     artifact = "Windows.Registry.UserAssist"
     result_scope = ""
-    parameters = None  # No parameters for this artifact
+    parameters = {
+        "ExecutionTimeAfter": ExecutionTimeAfter,
+        "UserFilter": UserFilter,
+    }
 
-    return _run_collection_tool(client_id, artifact, parameters, Fields, result_scope, org_id)
+    return _run_collection_tool(
+        client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
+    )
 
 @mcp.tool()
 async def windows_execution_shimcache(
@@ -1552,16 +1746,24 @@ async def windows_execution_shimcache(
 async def windows_execution_prefetch(
     client_id: str,
     org_id: str = "",
+    DateAfter: str = "",
+    DateBefore: str = "",
+    binaryRegex: str = "",
+    hashRegex: str = "",
     limit: int = 100,
     offset: int = 0,
     Fields: str = "Binary,CreationTime,LastRunTimes,RunCount,Hash"
 ) -> str:
     """
-    Parse Prefetch files on a Windows host to identify previously executed programs with pagination support.
+    Parse Prefetch files on a Windows host to identify previously executed programs with time range and pagination support.
 
     Args:
         client_id: Velociraptor client ID.
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        DateAfter: Filter for prefetch files executed/created after this timestamp.
+        DateBefore: Filter for prefetch files executed/created before this timestamp.
+        binaryRegex: Regex to filter executable binary names.
+        hashRegex: Regex to filter prefetch hashes.
         limit: Maximum rows to return per page (default: 100).
         offset: Starting row index for pagination (default: 0).
         Fields: Comma-separated list of fields to return.
@@ -1571,7 +1773,12 @@ async def windows_execution_prefetch(
     """
     artifact = "Windows.Forensics.Prefetch"
     result_scope = ""
-    parameters = None  # No parameters for this artifact
+    parameters = {
+        "dateAfter": DateAfter,
+        "dateBefore": DateBefore,
+        "binaryRegex": binaryRegex,
+        "hashRegex": hashRegex,
+    }
 
     return _run_collection_tool(
         client_id, artifact, parameters, Fields, result_scope, org_id, limit, offset
@@ -1757,10 +1964,12 @@ async def windows_powershell_history(
     StringWhiteList: str = "",
     UserRegex: str = ".",
     UploadFiles: bool = False,
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Collect PowerShell PSReadLine console history.
+    Collect PowerShell PSReadLine console history with pagination support.
     """
     if SearchRegex != "." and not SearchStrings:
         SearchStrings = SearchRegex
@@ -1777,6 +1986,8 @@ async def windows_powershell_history(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -1784,22 +1995,28 @@ async def windows_powershell_history(
 async def windows_autoruns(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Collect Windows autorun/startup extension points.
+    Collect Windows autorun/startup extension points with pagination support.
     """
-    return _run_collection_tool(client_id, "Windows.Sys.StartupItems", None, Fields, "", org_id)
+    return _run_collection_tool(
+        client_id, "Windows.Sys.StartupItems", None, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
 async def windows_wmi_persistence(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Detect WMI permanent event subscription persistence.
+    Detect WMI permanent event subscription persistence with pagination support.
     """
     return _run_collection_tool(
         client_id,
@@ -1808,6 +2025,8 @@ async def windows_wmi_persistence(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -1815,24 +2034,42 @@ async def windows_wmi_persistence(
 async def windows_rdp_sessions(
     client_id: str,
     org_id: str = "",
+    DateAfter: str = "",
+    DateBefore: str = "",
+    SourceIPRegex: str = ".+",
+    UserNameRegex: str = ".+",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Collect Windows RDP authentication/session events.
+    Collect Windows RDP authentication/session events with time range and pagination support.
     """
-    return _run_collection_tool(client_id, "Windows.EventLogs.RDPAuth", None, Fields, "", org_id)
+    parameters = {
+        "DateAfter": DateAfter,
+        "DateBefore": DateBefore,
+        "SourceIPRegex": SourceIPRegex,
+        "UserNameRegex": UserNameRegex,
+    }
+    return _run_collection_tool(
+        client_id, "Windows.EventLogs.RDPAuth", parameters, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
 async def windows_dns_cache(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Dump the Windows DNS client cache.
+    Dump the Windows DNS client cache with pagination support.
     """
-    return _run_collection_tool(client_id, "Windows.System.DNSCache", None, Fields, "", org_id)
+    return _run_collection_tool(
+        client_id, "Windows.System.DNSCache", None, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
@@ -1851,10 +2088,12 @@ async def windows_hash_search(
     ModifiedBefore: str = "",
     VSS_MAX_AGE_DAYS: int = 0,
     UPLOAD_IS_RESUMABLE: bool = True,
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Search Windows files by glob or YARA rule using documented FileFinder params.
+    Search Windows files by glob or YARA rule using documented FileFinder params with pagination support.
     """
     if SearchGlob:
         Glob = SearchGlob
@@ -1879,6 +2118,8 @@ async def windows_hash_search(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -1886,12 +2127,16 @@ async def windows_hash_search(
 async def windows_recycle_bin(
     client_id: str,
     org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Parse Windows Recycle Bin metadata.
+    Parse Windows Recycle Bin metadata with pagination support.
     """
-    return _run_collection_tool(client_id, "Windows.Forensics.RecycleBin", None, Fields, "", org_id)
+    return _run_collection_tool(
+        client_id, "Windows.Forensics.RecycleBin", None, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
@@ -2006,12 +2251,26 @@ async def windows_usn_journal(
 async def windows_srum(
     client_id: str,
     org_id: str = "",
+    TimeAfter: str = "",
+    TimeBefore: str = "",
+    ExecutableRegex: str = ".",
+    UserRegex: str = ".",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Parse Windows SRUM resource usage data.
+    Parse Windows SRUM resource usage data with time range and pagination support.
     """
-    return _run_collection_tool(client_id, "Windows.Forensics.SRUM", None, Fields, "", org_id)
+    parameters = {
+        "TimeAfter": TimeAfter,
+        "TimeBefore": TimeBefore,
+        "ExecutableRegex": ExecutableRegex,
+        "UserRegex": UserRegex,
+    }
+    return _run_collection_tool(
+        client_id, "Windows.Forensics.SRUM", parameters, Fields, "", org_id, limit, offset
+    )
 
 
 @mcp.tool()
@@ -2022,10 +2281,12 @@ async def windows_browser_history(
     historyGlobs: str = "",
     urlSQLQuery: str = "",
     userRegex: str = ".",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "URL,Title,LastVisitTime,VisitCount,TypedCount,BrowserType,User",
 ) -> str:
     """
-    Collect Windows Chromium-family browser history.
+    Collect Windows Chromium-family browser history with pagination support.
     """
     parameters = {
         "historyGlobs": historyGlobs,
@@ -2040,6 +2301,8 @@ async def windows_browser_history(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -2051,10 +2314,12 @@ async def yara_scan_files(
     FileNameRegex: str = ".",
     PathRegex: str = ".",
     DriveLetter: str = "C:",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Scan Windows files with an inline YARA rule using raw NTFS access.
+    Scan Windows files with an inline YARA rule using raw NTFS access with pagination support.
     """
     parameters = {
         "YaraRule": YaraRule,
@@ -2069,6 +2334,8 @@ async def yara_scan_files(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -2079,10 +2346,12 @@ async def yara_scan_process(
     org_id: str = "",
     ProcessRegex: str = ".",
     PidRegex: str = ".",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Scan Windows process memory with an inline YARA rule.
+    Scan Windows process memory with an inline YARA rule with pagination support.
     """
     parameters = {
         "YaraRule": YaraRule,
@@ -2096,6 +2365,8 @@ async def yara_scan_process(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -2106,10 +2377,12 @@ async def linux_yara_scan(
     org_id: str = "",
     ProcessRegex: str = ".",
     PidRegex: str = ".",
+    limit: int = 100,
+    offset: int = 0,
     Fields: str = "*",
 ) -> str:
     """
-    Scan Linux process memory with an inline YARA rule.
+    Scan Linux process memory with an inline YARA rule with pagination support.
     """
     parameters = {
         "YaraRule": YaraRule,
@@ -2123,6 +2396,8 @@ async def linux_yara_scan(
         Fields,
         "",
         org_id,
+        limit,
+        offset,
     )
 
 
@@ -2185,11 +2460,13 @@ async def get_collection_results(
     artifact: str,
     org_id: str = "",
     fields: str = "*",
+    limit: int = 100,
+    offset: int = 0,
     max_retries: int = 10,
     retry_delay: int = 30
 ) -> str:
     """
-    Retrieve Velociraptor collection results for a given client, flow ID, and artifact.
+    Retrieve Velociraptor collection results for a given client, flow ID, and artifact with pagination support.
     Waits and retries if the flow hasn't finished or if no results are immediately available.
 
     Args:
@@ -2198,21 +2475,37 @@ async def get_collection_results(
         artifact: The name of the artifact collected (e.g., Windows.NTFS.MFT).
         org_id: Optional Velociraptor org ID for multi-tenant deployments.
         fields: Comma-separated string of fields to return (default is "*").
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
         max_retries: Number of times to retry if the flow hasn't finished or no results yet.
         retry_delay: Time (in seconds) to wait between retries.
 
     Returns:
-        Collection results as a string or an error message.
+        Collection results as a JSON string with data and pagination metadata.
     """
     try:
+        capped_limit = _clamp_limit(limit)
+        probe_limit = capped_limit + 1
+
         for attempt in range(max_retries):
             status = get_flow_status(client_id, flow_id, artifact, org_id=org_id)
             if status != "FINISHED":
                 await asyncio.sleep(retry_delay)
                 continue
 
-            result = get_flow_results(client_id, flow_id, artifact, fields, org_id=org_id)
-            return _json_success(result)
+            raw_rows = get_flow_results(
+                client_id, flow_id, artifact, fields, limit=probe_limit, offset=offset, org_id=org_id
+            )
+            has_more = len(raw_rows) > capped_limit
+            data = raw_rows[:capped_limit]
+            pagination = {
+                "limit": capped_limit,
+                "offset": offset,
+                "returned_rows": len(data),
+                "has_more": has_more,
+                "next_offset": (offset + len(data)) if has_more else None,
+            }
+            return _json_success({"data": data, "pagination": pagination} if False else data, pagination=pagination)
     except Exception as exc:
         return _json_error(str(exc))
 
