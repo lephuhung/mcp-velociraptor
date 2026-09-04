@@ -2583,6 +2583,58 @@ async def collect_forensic_triage(
         org_id=org_id,
     )
 
+_CUSTOM_ARTIFACT_RE = re.compile(r"^Custom\.[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$")
+
+
+@mcp.tool()
+async def collect_custom_artifact(
+    client_id: str,
+    artifact: str,
+    org_id: str = "",
+    limit: int = 100,
+    offset: int = 0,
+) -> str:
+    """
+    Collect a Custom.* client artifact with default parameters and pagination.
+
+    Read-only and namespace-restricted: only artifacts whose name matches
+    ^Custom\\.[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$ and whose server-side type is
+    CLIENT are accepted. Parameters are always the artifact defaults.
+
+    Args:
+        client_id: Velociraptor client ID to target.
+        artifact: Custom.* artifact name (e.g. Custom.MyOrg.Pslist).
+        org_id: Optional Velociraptor org ID for multi-tenant deployments.
+        limit: Maximum rows to return per page (default: 100).
+        offset: Starting row index for pagination (default: 0).
+
+    Returns:
+        Collection results as a JSON string with data and pagination metadata.
+    """
+    if not _CUSTOM_ARTIFACT_RE.fullmatch(artifact):
+        return _json_error(
+            "artifact must be in the Custom.* namespace "
+            "(e.g. Custom.MyOrg.Pslist)."
+        )
+    try:
+        definitions = run_vql_query(
+            "SELECT name, type FROM artifact_definitions() WHERE name = "
+            + vql_literal(artifact),
+            org_id=org_id,
+        )
+    except Exception as exc:
+        return _json_error(str(exc))
+    if not definitions:
+        return _json_error(f"Unknown artifact: {artifact!r}")
+    artifact_type = str(definitions[0].get("type", "")).lower()
+    if artifact_type != "client":
+        return _json_error(
+            f"Artifact {artifact!r} has type {artifact_type!r}; "
+            "only CLIENT artifacts are supported."
+        )
+    return _run_collection_tool(client_id, artifact, None, "*", "", org_id, limit, offset)
+
+
 @mcp.tool()
 async def list_windows_artifacts(
     org_id: str = "",
